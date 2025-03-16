@@ -5,7 +5,14 @@ const cookieParser = require('cookie-parser');
 const logger = require('morgan');
 const mongoose = require('mongoose');
 const cors = require('cors');
-require('dotenv').config();
+try {
+  // Only load dotenv in development
+  if (process.env.NODE_ENV !== 'production') {
+    require('dotenv').config();
+  }
+} catch (error) {
+  console.warn('No .env file found, using environment variables');
+}
 const fs = require('fs');
 
 const heroSlideRouter = require('./src/routes/hero-slide-routes');
@@ -22,87 +29,53 @@ mongoose.connect(MONGO_URI, {
   useUnifiedTopology: true
 })
 .then(() => {
-  console.log('Connected to MongoDB successfully.')
-  app.listen(5000, () => {
-    console.log('Server is running on port 5000')
-  })
+  console.log('Connected to MongoDB successfully.');
 })
 .catch((err) => {
-  console.error('Error connecting to MongoDB:', err)
-})
+  console.error('Error connecting to MongoDB:', err);
+});
 
 // view engine setup
-app.set('views', path.join(__dirname, 'views'))
-app.set('view engine', 'jade')
+app.set('views', path.join(__dirname, 'views'));
+app.set('view engine', 'jade');
 
-app.use(logger('dev'))
-app.use(express.json())
-app.use(express.urlencoded({ extended: false }))
-app.use(cookieParser())
+app.use(logger('dev'));
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+app.use(cookieParser());
 
 // Configure CORS
 app.use(cors({
   origin: ['http://localhost:3000', 'https://your-frontend-domain.vercel.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-}))
+}));
+
+// Ensure uploads directory exists
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+  console.log('Created uploads directory');
+}
+
+// Ensure uploads subdirectories exist
+['cars', 'brands', 'profiles', 'hero'].forEach(dir => {
+  const subDir = path.join(uploadsDir, dir);
+  if (!fs.existsSync(subDir)) {
+    fs.mkdirSync(subDir, { recursive: true });
+    console.log(`Created ${dir} subdirectory`);
+  }
+});
 
 // Serve static files from 'public' and 'uploads' directories
 app.use(express.static(path.join(__dirname, 'public')));
-
-// First, try serving from the uploads directory at the app root
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// If that fails, try serving from one level up (if your uploads folder is outside the app directory)
-app.use('/uploads', (req, res, next) => {
-  const filePath = path.join(__dirname, 'uploads', req.path);
-  console.log('Looking for file at:', filePath);
-  console.log('File exists:', fs.existsSync(filePath));
-  if (fs.existsSync(filePath)) {
-    return res.sendFile(filePath);
-  }
-  next();
-});
-
-// Handle Windows-style paths that might come from the server
-app.get('*/uploads/*', (req, res, next) => {
-  // Extract the filename from the path
-  const matches = req.path.match(/.*uploads\/(.+)/);
-  if (matches && matches[1]) {
-    const filename = matches[1];
-    const possiblePaths = [
-      path.join(__dirname, 'uploads', filename),
-      path.join(__dirname, '..', 'uploads', filename)
-    ];
-    
-    // Try each possible path
-    for (const filePath of possiblePaths) {
-      if (fs.existsSync(filePath)) {
-        return res.sendFile(filePath);
-      }
-    }
-  }
-  next();
-});
-
-// Add a fallback for image files
-app.get('/*.jpg|*.jpeg|*.png|*.gif|*.webp', (req, res, next) => {
-  const filename = path.basename(req.path);
-  const possiblePaths = [
-    path.join(__dirname, 'uploads', 'cars', filename),
-    path.join(__dirname, 'uploads', 'brands', filename),
-    path.join(__dirname, 'uploads', 'profiles', filename),
-    path.join(__dirname, 'uploads', filename)
-  ];
-  
-  // Try each possible path
-  for (const filePath of possiblePaths) {
-    if (fs.existsSync(filePath)) {
-      return res.sendFile(filePath);
-    }
-  }
-  next();
-});
+// API routes
+app.use('/cars', carRouter);
+app.use('/brands', brandRouter);
+app.use('/importers', importerRouter);
+app.use('/hero-slides', heroSlideRouter);
 
 // Add this middleware to log all requests for images
 app.use((req, res, next) => {
@@ -112,24 +85,26 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use('/cars', carRouter)
-app.use('/brands', brandRouter)
-app.use('/importers', importerRouter)
-app.use('/hero-slides', heroSlideRouter)
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
-  next(createError(404))
-})
+  next(createError(404));
+});
 
 // error handler
 app.use(function(err, req, res, next) {
   // set locals, only providing error in development
-  res.locals.message = err.message
-  res.locals.error = req.app.get('env') === 'development' ? err : {}
+  res.locals.message = err.message;
+  res.locals.error = req.app.get('env') === 'development' ? err : {};
 
   // respond with the error
-  res.status(err.status || 500)
-  res.json({ message: err.message, error: res.locals.error })
-})
+  res.status(err.status || 500);
+  res.json({ message: err.message, error: res.locals.error });
+});
 
-module.exports = app
+// Use the PORT provided by Render or default to 5000
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
+});
+
+module.exports = app;
