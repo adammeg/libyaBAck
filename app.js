@@ -46,9 +46,10 @@ app.use(cookieParser());
 
 // Configure CORS
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://your-frontend-domain.vercel.app'],
+  origin: ['http://localhost:3000', 'https://libya-auto-nyx6.vercel.app'],
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true
 }));
 
 // Ensure uploads directory exists
@@ -83,6 +84,11 @@ app.use((req, res, next) => {
     console.log('Image request:', req.path);
   }
   next();
+});
+
+// Test endpoint
+app.get('/api/test', (req, res) => {
+  res.json({ message: 'Backend is working!' });
 });
 
 // catch 404 and forward to error handler
