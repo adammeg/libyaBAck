@@ -1,58 +1,21 @@
 const Brand = require('../models/brandSchema');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-
-// Set up Multer storage with absolute paths
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, '..', '..', 'uploads', 'logos');
-
-    // Create the directory if it doesn't exist
-    fs.mkdir(uploadPath, { recursive: true }, (err) => {
-      if (err) {
-        return cb(err, uploadPath);
-      }
-      cb(null, uploadPath);
-    });
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + path.extname(file.originalname)); // Append extension
-  },
-});
-
-// File filter to accept only images
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimeType = allowedTypes.test(file.mimetype);
-
-  if (mimeType && extname) {
-    return cb(null, true);
-  } else {
-    cb('Error: Images Only!');
-  }
-};
-
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 1024 * 1024 * 5 }, // 5MB limit
-  fileFilter: fileFilter,
-}).single('logo'); // 'logo' is the field name in the form
+const { uploadBrandLogo } = require('../config/cloudinary');
 
 // Controller to create a new Brand
 const createBrand = async (req, res) => {
   const { name } = req.body;
-  const logoPath = req.file ? req.file.path : null;
+  
+  // With Cloudinary, req.file will have a path property that contains the URL
+  const logoUrl = req.file ? req.file.path : null;
 
-  if (!logoPath) {
+  if (!logoUrl) {
     return res.status(400).json({ message: 'Logo is required.' });
   }
 
   try {
     const newBrand = new Brand({
       name,
-      logo: logoPath,
+      logo: logoUrl, // This is now a full URL from Cloudinary
     });
 
     await newBrand.save();
@@ -88,12 +51,12 @@ const getBrandById = async (req, res) => {
 // Update a brand by ID
 const updateBrand = async (req, res) => {
   const { name } = req.body;
-  const logoPath = req.file ? req.file.path : null;
+  const logoUrl = req.file ? req.file.path : null;
 
   try {
     const updateData = { name };
-    if (logoPath) {
-      updateData.logo = logoPath;
+    if (logoUrl) {
+      updateData.logo = logoUrl;
     }
 
     const brand = await Brand.findByIdAndUpdate(req.params.id, updateData, {

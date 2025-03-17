@@ -91,6 +91,43 @@ app.get('/api/test', (req, res) => {
   res.json({ message: 'Backend is working!' });
 });
 
+// Test endpoint to check file storage
+app.get('/api/test-storage', (req, res) => {
+  const fs = require('fs');
+  const path = require('path');
+  
+  const uploadsDir = path.join(__dirname, 'uploads');
+  
+  try {
+    // Check if directory exists
+    const dirExists = fs.existsSync(uploadsDir);
+    
+    // Try to create a test file
+    const testFilePath = path.join(uploadsDir, 'test-file.txt');
+    fs.writeFileSync(testFilePath, 'This is a test file');
+    
+    // Try to read the test file
+    const fileContent = fs.readFileSync(testFilePath, 'utf8');
+    
+    // List files in uploads directory
+    const files = fs.readdirSync(uploadsDir);
+    
+    res.json({
+      success: true,
+      dirExists,
+      fileContent,
+      files,
+      uploadsPath: uploadsDir
+    });
+  } catch (error) {
+    res.json({
+      success: false,
+      error: error.message,
+      stack: error.stack
+    });
+  }
+});
+
 // catch 404 and forward to error handler
 app.use(function(req, res, next) {
   next(createError(404));

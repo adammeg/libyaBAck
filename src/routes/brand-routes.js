@@ -4,6 +4,7 @@ const brandController = require('../controllers/brand-controllers');
 const path = require('path');
 const fs = require('fs');
 const Brand = require('../models/brandSchema');
+const { uploadBrandLogo } = require('../config/cloudinary');
 
 const router = express.Router();
 
@@ -75,92 +76,11 @@ router.get('/:id', async (req, res) => {
     }
 });
 
-// Create a new brand
-router.post('/', upload.single('logo'), async (req, res) => {
-    try {
-        const { name, description, isActive } = req.body;
-        
-        // Check if brand with same name already exists
-        const existingBrand = await Brand.findOne({ name: { $regex: new RegExp(`^${name}$`, 'i') } });
-        if (existingBrand) {
-            return res.status(400).json({ message: 'A brand with this name already exists' });
-        }
-        
-        // Get logo path from uploaded file
-        const logo = req.file ? req.file.path.replace(/\\/g, '/') : null;
-        
-        if (!logo) {
-            return res.status(400).json({ message: 'Logo is required' });
-        }
-        
-        // Create new brand
-        const newBrand = new Brand({
-            name,
-            description,
-            logo,
-            isActive: isActive === 'true',
-            createdAt: Date.now(),
-            updatedAt: Date.now()
-        });
-        
-        await newBrand.save();
-        res.status(201).json(newBrand);
-    } catch (error) {
-        console.error('Error creating brand:', error);
-        res.status(500).json({ message: 'Error creating brand', error: error.message });
-    }
-});
+// Create a new brand - use Cloudinary upload
+router.post('/', uploadBrandLogo.single('logo'), brandController.createBrand);
 
-// Update a brand
-router.put('/:id', upload.single('logo'), async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { name, description, isActive } = req.body;
-        
-        // Find the brand
-        const brand = await Brand.findById(id);
-        if (!brand) {
-            return res.status(404).json({ message: 'Brand not found' });
-        }
-        
-        // Check if updating to a name that already exists (excluding this brand)
-        if (name && name !== brand.name) {
-            const existingBrand = await Brand.findOne({ 
-                name: { $regex: new RegExp(`^${name}$`, 'i') },
-                _id: { $ne: id }
-            });
-            
-            if (existingBrand) {
-                return res.status(400).json({ message: 'A brand with this name already exists' });
-            }
-        }
-        
-        // Update logo if a new one is uploaded
-        if (req.file) {
-            // Delete old logo if it exists
-            if (brand.logo) {
-                try {
-                    fs.unlinkSync(brand.logo);
-                } catch (err) {
-                    console.error('Error deleting old logo:', err);
-                }
-            }
-            brand.logo = req.file.path.replace(/\\/g, '/');
-        }
-        
-        // Update other fields
-        if (name) brand.name = name;
-        if (description !== undefined) brand.description = description;
-        if (isActive !== undefined) brand.isActive = isActive === 'true';
-        brand.updatedAt = Date.now();
-        
-        await brand.save();
-        res.status(200).json(brand);
-    } catch (error) {
-        console.error('Error updating brand:', error);
-        res.status(500).json({ message: 'Error updating brand', error: error.message });
-    }
-});
+// Update a brand - use Cloudinary upload
+router.put('/:id', uploadBrandLogo.single('logo'), brandController.updateBrand);
 
 // Delete a brand
 router.delete('/:id', async (req, res) => {
