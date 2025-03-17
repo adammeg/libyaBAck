@@ -1,47 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const carController = require('../controllers/car-controllers');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const { uploadCarPhotos } = require('../config/cloudinary');
 const Car = require('../models/carSchema');
-
-// Set up Multer storage for car photos
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, '..', '..', 'uploads', 'cars');
-
-    // Create the directory if it doesn't exist
-    fs.mkdir(uploadPath, { recursive: true }, (err) => {
-      if (err) {
-        return cb(err, uploadPath);
-      }
-      cb(null, uploadPath);
-    });
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + '-' + file.originalname);
-  }
-});
-
-// File filter for car photos
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif|webp/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
-
-  if (mimetype && extname) {
-    return cb(null, true);
-  }
-  cb(new Error('Only JPEG, PNG, WebP, and GIF images are allowed.'));
-};
-
-// Initialize Multer
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: fileFilter,
-});
 
 // IMPORTANT: Put the search route BEFORE the :id routes to prevent conflicts
 // Search cars
@@ -50,14 +11,14 @@ router.get('/search', carController.searchCars);
 // Get all cars
 router.get('/all-cars', carController.getAllCars);
 
-// Create a new car - use upload.array for multiple photos
-router.post('/create', upload.array('photos', 10), carController.createCar);
+// Create a new car - use Cloudinary upload for multiple photos
+router.post('/create', uploadCarPhotos.array('photos', 10), carController.createCar);
 
 // Get a single car by ID
 router.get('/:id', carController.getCarById);
 
-// Update a car by ID
-router.put('/:id', upload.array('photos', 10), carController.updateCar);
+// Update a car by ID - use Cloudinary upload for multiple photos
+router.put('/:id', uploadCarPhotos.array('photos', 10), carController.updateCar);
 
 // Delete a car by ID
 router.delete('/:id', carController.deleteCar);

@@ -1,63 +1,35 @@
 const Importer = require('../models/importerSchema');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-
-// Set up Multer storage for profile images
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const uploadPath = path.join(__dirname, '..', '..', 'uploads', 'profiles');
-
-    // Create the directory if it doesn't exist
-    fs.mkdir(uploadPath, { recursive: true }, (err) => {
-      if (err) {
-        return cb(err, uploadPath);
-      }
-      cb(null, uploadPath);
-    });
-  },
-  filename: function (req, file, cb) {
-    cb(null, Date.now() + '-' + file.originalname); // e.g., 1638316800000-profile.jpg
-  },
-});
-
-// File filter to accept only images
-const fileFilter = (req, file, cb) => {
-  const allowedTypes = /jpeg|jpg|png|gif/;
-  const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-  const mimetype = allowedTypes.test(file.mimetype);
-
-  if (mimetype && extname) {
-    return cb(null, true);
-  } else {
-    cb(new Error('Only JPEG, PNG, and GIF images are allowed.'));
-  }
-};
-
-// Initialize Multer
-const upload = multer({
-  storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
-  fileFilter: fileFilter,
-});
+const { uploadImporterProfile, cloudinary } = require('../config/cloudinary');
 
 // Controller to create a new Importer
 const createImporter = async (req, res) => {
   const { name, address, telephone, email, brands } = req.body;
-  const profileImage = req.file ? req.file.path : null; // Handle optional profileImage
+  const profileImageUrl = req.file ? req.file.path : null; // From Cloudinary
 
   try {
+    // Parse brands array if it's a string
+    let brandsArray = brands;
+    if (typeof brands === 'string') {
+      try {
+        brandsArray = JSON.parse(brands);
+      } catch (err) {
+        brandsArray = brands.split(',').map(id => id.trim());
+      }
+    }
+
     const newImporter = new Importer({
       name,
       address,
       telephone,
       email,
-      profileImage,
-      brands,
+      profileImage: profileImageUrl,
+      brands: brandsArray,
     });
 
     await newImporter.save();
-    res.status(201).json({ message: 'Importer created successfully.', importer: newImporter });
+    const populatedImporter = await Importer.findById(newImporter._id).populate('brands');
+    
+    res.status(201).json(populatedImporter);
   } catch (error) {
     res.status(500).json({ message: 'Server Error', error: error.message });
   }
@@ -89,30 +61,47 @@ const getImporterById = async (req, res) => {
 // Update an importer by ID
 const updateImporter = async (req, res) => {
   const { name, address, telephone, email, brands } = req.body;
-  const profileImage = req.file ? req.file.path : null; // Handle optional profileImage
+  const profileImageUrl = req.file ? req.file.path : null;
 
   try {
-    const updateData = {
-      name,
-      address,
-      telephone,
-      email,
-      brands,
-    };
-    if (profileImage) {
-      updateData.profileImage = profileImage;
-    }
-
-    const importer = await Importer.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
-      runValidators: true,
-    }).populate('brands');
-
+    const importer = await Importer.findById(req.params.id);
     if (!importer) {
       return res.status(404).json({ message: 'Importer not found' });
     }
 
-    res.json(importer);
+    // Handle brands array
+    let brandsArray = brands;
+    if (typeof brands === 'string') {
+      try {
+        brandsArray = JSON.parse(brands);
+      } catch (err) {
+        brandsArray = brands.split(',').map(id => id.trim());
+      }
+    }
+
+    // Delete old image from Cloudinary if uploading a new one
+    if (profileImageUrl && importer.profileImage && importer.profileImage.includes('cloudinary')) {
+      try {
+        const publicId = extractPublicIdFromUrl(importer.profileImage);
+        if (publicId) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (err) {
+        console.error('Error deleting old profile image:', err);
+      }
+    }
+
+    // Update fields
+    if (name) importer.name = name;
+    if (address) importer.address = address;
+    if (telephone) importer.telephone = telephone;
+    if (email) importer.email = email;
+    if (brandsArray) importer.brands = brandsArray;
+    if (profileImageUrl) importer.profileImage = profileImageUrl;
+    
+    await importer.save();
+    const updatedImporter = await Importer.findById(importer._id).populate('brands');
+    res.json(updatedImporter);
   } catch (err) {
     res.status(400).json({ message: err.message });
   }
@@ -121,15 +110,56 @@ const updateImporter = async (req, res) => {
 // Delete an importer by ID
 const deleteImporter = async (req, res) => {
   try {
-    const importer = await Importer.findByIdAndDelete(req.params.id);
+    const importer = await Importer.findById(req.params.id);
     if (!importer) {
       return res.status(404).json({ message: 'Importer not found' });
     }
+
+    // Delete profile image from Cloudinary if exists
+    if (importer.profileImage && importer.profileImage.includes('cloudinary')) {
+      try {
+        const publicId = extractPublicIdFromUrl(importer.profileImage);
+        if (publicId) {
+          await cloudinary.uploader.destroy(publicId);
+        }
+      } catch (err) {
+        console.error('Error deleting profile image:', err);
+      }
+    }
+
+    await Importer.findByIdAndDelete(req.params.id);
     res.json({ message: 'Importer deleted' });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 };
+
+// Helper function to extract public ID from Cloudinary URL
+function extractPublicIdFromUrl(url) {
+  try {
+    if (!url || typeof url !== 'string') return null;
+    
+    const uploadIndex = url.indexOf('/upload/');
+    if (uploadIndex === -1) return null;
+    
+    let path = url.substring(uploadIndex + 8);
+    
+    const extIndex = path.lastIndexOf('.');
+    if (extIndex !== -1) {
+      path = path.substring(0, extIndex);
+    }
+    
+    const versionMatch = path.match(/^v\d+\//);
+    if (versionMatch) {
+      path = path.substring(versionMatch[0].length);
+    }
+    
+    return path;
+  } catch (error) {
+    console.error('Error extracting public ID:', error);
+    return null;
+  }
+}
 
 module.exports = {
   createImporter,

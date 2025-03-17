@@ -1,40 +1,5 @@
 const Car = require('../models/carSchema');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-
-// Set up multer storage
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        const uploadPath = path.join(__dirname, '..', '..', 'uploads', 'cars');
-        
-        // Create the directory if it doesn't exist
-        fs.mkdir(uploadPath, { recursive: true }, (err) => {
-            if (err) {
-                return cb(err, uploadPath);
-            }
-            cb(null, uploadPath);
-        });
-    },
-    filename: function (req, file, cb) {
-        cb(null, Date.now() + '-' + file.originalname);
-    }
-});
-
-// File filter
-const fileFilter = (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|webp/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    if (mimetype && extname) {
-        return cb(null, true);
-    }
-    cb(new Error('Only image files are allowed!'));
-};
-
-// Create multer upload instance
-const upload = multer({ storage: storage, fileFilter: fileFilter });
+const { uploadCarPhotos, cloudinary } = require('../config/cloudinary');
 
 // Create a new car
 const createCar = async (req, res) => {
@@ -42,44 +7,55 @@ const createCar = async (req, res) => {
         console.log("Request body:", req.body);
         console.log("Request files:", req.files);
         
-        const { model, price, description, importer } = req.body;
+        const { model, price, description, importer, type } = req.body;
         let brands = req.body.brands;
         
         // Ensure brands is an array
         if (!Array.isArray(brands)) {
-            brands = brands ? [brands] : [];
+            if (typeof brands === 'string') {
+                try {
+                    brands = JSON.parse(brands);
+                } catch (err) {
+                    brands = brands.split(',').map(b => b.trim());
+                }
+            } else if (!brands) {
+                brands = [];
+            } else {
+                brands = [brands];
+            }
         }
         
-        // Get photo paths from uploaded files
-        const photos = req.files ? req.files.map(file => file.path) : [];
+        // Get photo URLs from Cloudinary
+        const photoUrls = req.files ? req.files.map(file => file.path) : [];
+        
+        if (photoUrls.length === 0) {
+            return res.status(400).json({ message: 'At least one photo is required' });
+        }
         
         // Create new car
         const newCar = new Car({
             model,
+            brands,
             price,
             description,
-            photos,
             importer,
-            brands
+            type,
+            photos: photoUrls,
+            createdAt: Date.now(),
+            updatedAt: Date.now()
         });
         
         await newCar.save();
         
-        // Populate the car with brand and importer data
+        // Populate the importer and brands for the response
         const populatedCar = await Car.findById(newCar._id)
             .populate('brands')
             .populate('importer');
-            
-        res.status(201).json({ 
-            message: 'Car created successfully.', 
-            car: populatedCar 
-        });
+        
+        res.status(201).json(populatedCar);
     } catch (error) {
         console.error('Error creating car:', error);
-        res.status(500).json({ 
-            message: 'Server Error', 
-            error: error.message 
-        });
+        res.status(500).json({ message: 'Error creating car', error: error.message });
     }
 };
 
@@ -88,10 +64,13 @@ const getAllCars = async (req, res) => {
     try {
         const cars = await Car.find()
             .populate('brands')
-            .populate('importer');
-        res.json(cars);
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+            .populate('importer')
+            .sort({ createdAt: -1 });
+        
+        res.status(200).json(cars);
+    } catch (error) {
+        console.error('Error fetching all cars:', error);
+        res.status(500).json({ message: 'Error fetching cars', error: error.message });
     }
 };
 
@@ -101,69 +80,146 @@ const getCarById = async (req, res) => {
         const car = await Car.findById(req.params.id)
             .populate('brands')
             .populate('importer');
+        
         if (!car) {
             return res.status(404).json({ message: 'Car not found' });
         }
-        res.json(car);
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+        
+        res.status(200).json(car);
+    } catch (error) {
+        console.error('Error fetching car:', error);
+        res.status(500).json({ message: 'Error fetching car', error: error.message });
     }
 };
 
 // Update a car by ID
 const updateCar = async (req, res) => {
     try {
-        const { model, price, description, importer } = req.body;
+        const { id } = req.params;
+        const { model, price, description, importer, type } = req.body;
         let brands = req.body.brands;
+        let photos = req.body.existingPhotos;
         
-        // Ensure brands is an array
-        if (!Array.isArray(brands)) {
-            brands = brands ? [brands] : [];
-        }
-        
-        // Prepare update data
-        const updateData = {
-            model,
-            price,
-            description,
-            importer,
-            brands
-        };
-        
-        // Add photos if files were uploaded
-        if (req.files && req.files.length > 0) {
-            updateData.photos = req.files.map(file => file.path);
-        }
-        
-        const car = await Car.findByIdAndUpdate(req.params.id, updateData, {
-            new: true,
-            runValidators: true,
-        }).populate('brands importer');
-        
+        // Find the car
+        const car = await Car.findById(id);
         if (!car) {
             return res.status(404).json({ message: 'Car not found' });
         }
         
-        res.json(car);
-    } catch (err) {
-        res.status(400).json({ message: err.message });
+        // Handle brands array
+        if (!Array.isArray(brands)) {
+            if (typeof brands === 'string') {
+                try {
+                    brands = JSON.parse(brands);
+                } catch (err) {
+                    brands = brands.split(',').map(b => b.trim());
+                }
+            } else if (!brands) {
+                brands = [];
+            } else {
+                brands = [brands];
+            }
+        }
+        
+        // Handle existing photos array
+        if (!Array.isArray(photos)) {
+            if (typeof photos === 'string') {
+                try {
+                    photos = JSON.parse(photos);
+                } catch (err) {
+                    photos = photos ? [photos] : [];
+                }
+            } else if (!photos) {
+                photos = [];
+            } else {
+                photos = [photos];
+            }
+        }
+        
+        // Get new photos from Cloudinary
+        const newPhotoUrls = req.files ? req.files.map(file => file.path) : [];
+        
+        // Find photos to delete (photos in car.photos that are not in the existingPhotos array)
+        const photosToDelete = car.photos.filter(oldPhoto => !photos.includes(oldPhoto));
+        
+        // Delete removed photos from Cloudinary
+        for (const photoUrl of photosToDelete) {
+            if (photoUrl && photoUrl.includes('cloudinary')) {
+                try {
+                    const publicId = extractPublicIdFromUrl(photoUrl);
+                    if (publicId) {
+                        await cloudinary.uploader.destroy(publicId);
+                        console.log('Successfully deleted photo from Cloudinary:', publicId);
+                    }
+                } catch (err) {
+                    console.error('Error deleting photo from Cloudinary:', err);
+                }
+            }
+        }
+        
+        // Combine existing photos with new ones
+        const updatedPhotos = [...photos, ...newPhotoUrls];
+        
+        // Update car fields
+        car.model = model || car.model;
+        car.brands = brands || car.brands;
+        car.price = price || car.price;
+        car.description = description || car.description;
+        car.importer = importer || car.importer;
+        car.type = type || car.type;
+        car.photos = updatedPhotos;
+        car.updatedAt = Date.now();
+        
+        await car.save();
+        
+        // Populate the importer and brands for the response
+        const updatedCar = await Car.findById(id)
+            .populate('brands')
+            .populate('importer');
+        
+        res.status(200).json(updatedCar);
+    } catch (error) {
+        console.error('Error updating car:', error);
+        res.status(500).json({ message: 'Error updating car', error: error.message });
     }
 };
 
 // Delete a car by ID
 const deleteCar = async (req, res) => {
     try {
-        const car = await Car.findByIdAndDelete(req.params.id);
+        const { id } = req.params;
+        
+        // Find the car
+        const car = await Car.findById(id);
         if (!car) {
             return res.status(404).json({ message: 'Car not found' });
         }
-        res.json({ message: 'Car deleted' });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+        
+        // Delete photos from Cloudinary
+        for (const photoUrl of car.photos) {
+            if (photoUrl && photoUrl.includes('cloudinary')) {
+                try {
+                    const publicId = extractPublicIdFromUrl(photoUrl);
+                    if (publicId) {
+                        await cloudinary.uploader.destroy(publicId);
+                        console.log('Successfully deleted photo from Cloudinary:', publicId);
+                    }
+                } catch (err) {
+                    console.error('Error deleting photo from Cloudinary:', err);
+                }
+            }
+        }
+        
+        // Delete the car
+        await Car.findByIdAndDelete(id);
+        res.status(200).json({ message: 'Car deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting car:', error);
+        res.status(500).json({ message: 'Error deleting car', error: error.message });
     }
 };
 
-// Add this function to your car controller
+// Search cars
 const searchCars = async (req, res) => {
   try {
     console.log("Search query:", req.query);
@@ -210,7 +266,7 @@ const searchCars = async (req, res) => {
   }
 };
 
-// Add this function to your car controller
+// Get similar cars
 const getSimilarCars = async (req, res) => {
   try {
     const { id } = req.params;
@@ -243,6 +299,33 @@ const getSimilarCars = async (req, res) => {
     res.status(500).json({ message: 'Error finding similar cars', error: error.message });
   }
 };
+
+// Helper function to extract public ID from Cloudinary URL
+function extractPublicIdFromUrl(url) {
+  try {
+    if (!url || typeof url !== 'string') return null;
+    
+    const uploadIndex = url.indexOf('/upload/');
+    if (uploadIndex === -1) return null;
+    
+    let path = url.substring(uploadIndex + 8);
+    
+    const extIndex = path.lastIndexOf('.');
+    if (extIndex !== -1) {
+      path = path.substring(0, extIndex);
+    }
+    
+    const versionMatch = path.match(/^v\d+\//);
+    if (versionMatch) {
+      path = path.substring(versionMatch[0].length);
+    }
+    
+    return path;
+  } catch (error) {
+    console.error('Error extracting public ID:', error);
+    return null;
+  }
+}
 
 module.exports = {
     createCar,

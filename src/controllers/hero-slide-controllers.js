@@ -1,39 +1,5 @@
 const HeroSlide = require('../models/heroSlideSchema');
-const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
-
-// Set up multer storage
-const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        const uploadPath = path.join(__dirname, '..', '..', 'uploads', 'hero');
-        
-        // Create the directory if it doesn't exist
-        fs.mkdirSync(uploadPath, { recursive: true });
-        console.log('Upload directory created/verified:', uploadPath);
-        cb(null, uploadPath);
-    },
-    filename: function (req, file, cb) {
-        const filename = Date.now() + '-' + file.originalname;
-        console.log('Generated filename:', filename);
-        cb(null, filename);
-    }
-});
-
-// File filter
-const fileFilter = (req, file, cb) => {
-    const allowedTypes = /jpeg|jpg|png|gif|webp/;
-    const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
-    const mimetype = allowedTypes.test(file.mimetype);
-
-    if (mimetype && extname) {
-        return cb(null, true);
-    }
-    cb(new Error('Only image files are allowed!'));
-};
-
-// Create multer upload instance
-const upload = multer({ storage: storage, fileFilter: fileFilter });
+const { uploadHeroImage, cloudinary } = require('../config/cloudinary');
 
 // Get all hero slides
 const getAllSlides = async (req, res) => {
@@ -60,16 +26,12 @@ const getActiveSlides = async (req, res) => {
 // Create a new hero slide
 const createSlide = async (req, res) => {
     try {
-        console.log('Create slide request received:', req.body);
-        console.log('File received:', req.file);
+        const { title, description, buttonText, buttonLink, order, isActive } = req.body;
         
-        const { title, description, order, isActive, buttonText, buttonLink } = req.body;
+        // Get image from Cloudinary upload (via uploadHeroImage middleware)
+        const imageUrl = req.file ? req.file.path : null;
         
-        // Get image path from uploaded file
-        const image = req.file ? req.file.path.replace(/\\/g, '/') : null;
-        
-        if (!image) {
-            console.log('Image is required but not provided');
+        if (!imageUrl) {
             return res.status(400).json({ message: 'Image is required' });
         }
         
@@ -77,18 +39,16 @@ const createSlide = async (req, res) => {
         const newSlide = new HeroSlide({
             title,
             description,
-            image,
-            order: order || 0,
-            isActive: isActive === 'true',
+            image: imageUrl,
             buttonText: buttonText || 'Learn More',
             buttonLink: buttonLink || '/search',
+            order: order || 0,
+            isActive: isActive === 'true',
+            createdAt: Date.now(),
             updatedAt: Date.now()
         });
         
-        console.log('Creating new slide:', newSlide);
-        
         await newSlide.save();
-        console.log('Slide created successfully');
         res.status(201).json(newSlide);
     } catch (error) {
         console.error('Error creating hero slide:', error);
@@ -100,7 +60,7 @@ const createSlide = async (req, res) => {
 const updateSlide = async (req, res) => {
     try {
         const { id } = req.params;
-        const { title, description, order, isActive, buttonText, buttonLink } = req.body;
+        const { title, description, buttonText, buttonLink, order, isActive } = req.body;
         
         // Find the slide
         const slide = await HeroSlide.findById(id);
@@ -110,24 +70,31 @@ const updateSlide = async (req, res) => {
         
         // Update image if a new one is uploaded
         if (req.file) {
-            // Delete old image if it exists
-            if (slide.image) {
+            // Delete old image from Cloudinary if it exists and is a Cloudinary URL
+            if (slide.image && slide.image.includes('cloudinary')) {
                 try {
-                    fs.unlinkSync(slide.image);
+                    // Extract public ID from Cloudinary URL
+                    const publicId = extractPublicIdFromUrl(slide.image);
+                    if (publicId) {
+                        await cloudinary.uploader.destroy(publicId);
+                        console.log('Successfully deleted old image from Cloudinary:', publicId);
+                    }
                 } catch (err) {
-                    console.error('Error deleting old image:', err);
+                    console.error('Error deleting image from Cloudinary:', err);
                 }
             }
-            slide.image = req.file.path.replace(/\\/g, '/');
+            
+            // Update with new image URL
+            slide.image = req.file.path;
         }
         
         // Update other fields
-        slide.title = title || slide.title;
-        slide.description = description || slide.description;
-        slide.order = order !== undefined ? order : slide.order;
-        slide.isActive = isActive !== undefined ? isActive === 'true' : slide.isActive;
-        slide.buttonText = buttonText || slide.buttonText;
-        slide.buttonLink = buttonLink || slide.buttonLink;
+        if (title) slide.title = title;
+        if (description) slide.description = description;
+        if (order !== undefined) slide.order = order;
+        if (isActive !== undefined) slide.isActive = isActive === 'true';
+        if (buttonText) slide.buttonText = buttonText;
+        if (buttonLink) slide.buttonLink = buttonLink;
         slide.updatedAt = Date.now();
         
         await slide.save();
@@ -149,12 +116,17 @@ const deleteSlide = async (req, res) => {
             return res.status(404).json({ message: 'Hero slide not found' });
         }
         
-        // Delete image file
-        if (slide.image) {
+        // Delete image from Cloudinary if it exists and is a Cloudinary URL
+        if (slide.image && slide.image.includes('cloudinary')) {
             try {
-                fs.unlinkSync(slide.image);
+                // Extract public ID from Cloudinary URL
+                const publicId = extractPublicIdFromUrl(slide.image);
+                if (publicId) {
+                    await cloudinary.uploader.destroy(publicId);
+                    console.log('Successfully deleted image from Cloudinary:', publicId);
+                }
             } catch (err) {
-                console.error('Error deleting image file:', err);
+                console.error('Error deleting image from Cloudinary:', err);
             }
         }
         
@@ -167,11 +139,43 @@ const deleteSlide = async (req, res) => {
     }
 };
 
+// Helper function to extract public ID from Cloudinary URL
+function extractPublicIdFromUrl(url) {
+    try {
+        // Handle URLs like: https://res.cloudinary.com/cloudname/image/upload/v1234567890/folder/filename.jpg
+        if (!url || typeof url !== 'string') return null;
+        
+        // Extract the part after /upload/
+        const uploadIndex = url.indexOf('/upload/');
+        if (uploadIndex === -1) return null;
+        
+        // Get everything after /upload/ but remove the version part (v1234567890/) if present
+        let path = url.substring(uploadIndex + 8); // +8 to skip "/upload/"
+        
+        // Remove file extension
+        const extIndex = path.lastIndexOf('.');
+        if (extIndex !== -1) {
+            path = path.substring(0, extIndex);
+        }
+        
+        // Remove version part if present (v1234567890/)
+        const versionMatch = path.match(/^v\d+\//);
+        if (versionMatch) {
+            path = path.substring(versionMatch[0].length);
+        }
+        
+        return path; // This should be the public ID including folder
+    } catch (error) {
+        console.error('Error extracting public ID from URL:', error);
+        return null;
+    }
+}
+
 module.exports = {
     getAllSlides,
     getActiveSlides,
     createSlide,
     updateSlide,
     deleteSlide,
-    upload
+    uploadHeroImage // Export the middleware
 };

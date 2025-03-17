@@ -14,6 +14,7 @@ try {
   console.warn('No .env file found, using environment variables');
 }
 const fs = require('fs');
+const { migrateImagesToCloudinary } = require('./utils/migration');
 
 const heroSlideRouter = require('./src/routes/hero-slide-routes');
 const carRouter = require('./src/routes/car-routes');
@@ -125,6 +126,16 @@ app.get('/api/test-storage', (req, res) => {
       error: error.message,
       stack: error.stack
     });
+  }
+});
+
+// Migration endpoint (protect this in production)
+app.get('/api/migrate-images', async (req, res) => {
+  try {
+    await migrateImagesToCloudinary();
+    res.json({ message: 'Migration completed' });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 
