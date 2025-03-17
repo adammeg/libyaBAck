@@ -77,7 +77,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create a new brand - use Cloudinary upload
-router.post('/', uploadBrandLogo.single('logo'), brandController.createBrand);
+router.post('/create', uploadBrandLogo.single('logo'), brandController.createBrand);
 
 // Update a brand - use Cloudinary upload
 router.put('/:id', uploadBrandLogo.single('logo'), brandController.updateBrand);
