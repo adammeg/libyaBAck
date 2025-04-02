@@ -20,6 +20,7 @@ const heroSlideRouter = require('./src/routes/hero-slide-routes');
 const carRouter = require('./src/routes/car-routes');
 const brandRouter = require('./src/routes/brand-routes');
 const importerRouter = require('./src/routes/importer-routes');
+const authRouter = require('./src/routes/auth-routes');
 const app = express();
 
 // MongoDB connection using Mongoose
@@ -78,6 +79,7 @@ app.use('/cars', carRouter);
 app.use('/brands', brandRouter);
 app.use('/importers', importerRouter);
 app.use('/hero-slides', heroSlideRouter);
+app.use('/auth', authRouter);
 
 // Add this middleware to log all requests for images
 app.use((req, res, next) => {
