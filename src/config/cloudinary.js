@@ -49,16 +49,28 @@ const importerStorage = new CloudinaryStorage({
   }
 });
 
+// Create storage engine for blog post featured images
+const blogStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'libya-auto/blog',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [{ width: 1200, height: 675, crop: 'fill' }]
+  }
+});
+
 // Create multer instances
 const uploadBrandLogo = multer({ storage: brandStorage });
 const uploadCarPhotos = multer({ storage: carStorage });
 const uploadHeroImage = multer({ storage: heroStorage });
 const uploadImporterProfile = multer({ storage: importerStorage });
+const uploadBlogImage = multer({ storage: blogStorage });
 
 module.exports = {
   cloudinary,
   uploadBrandLogo,
   uploadCarPhotos,
   uploadHeroImage,
-  uploadImporterProfile
+  uploadImporterProfile,
+  uploadBlogImage
 }; 
