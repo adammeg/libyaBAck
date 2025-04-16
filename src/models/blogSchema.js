@@ -2,9 +2,16 @@ const mongoose = require('mongoose');
 
 const blogSchema = new mongoose.Schema({
   title: {
-    type: String,
-    required: true,
-    trim: true
+    en: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    ar: {
+      type: String,
+      required: true,
+      trim: true
+    }
   },
   slug: {
     type: String,
@@ -14,12 +21,24 @@ const blogSchema = new mongoose.Schema({
     lowercase: true
   },
   content: {
-    type: String,
-    required: true
+    en: {
+      type: String,
+      required: true
+    },
+    ar: {
+      type: String,
+      required: true
+    }
   },
   excerpt: {
-    type: String,
-    required: true
+    en: {
+      type: String,
+      required: true
+    },
+    ar: {
+      type: String,
+      required: true
+    }
   },
   featuredImage: {
     type: String,
@@ -59,6 +78,13 @@ blogSchema.pre('save', function(next) {
 });
 
 // Create a text index for search functionality
-blogSchema.index({ title: 'text', content: 'text', tags: 'text', categories: 'text' });
+blogSchema.index({ 
+  'title.en': 'text', 
+  'title.ar': 'text', 
+  'content.en': 'text', 
+  'content.ar': 'text', 
+  tags: 'text', 
+  categories: 'text' 
+});
 
 module.exports = mongoose.model('Blog', blogSchema); 

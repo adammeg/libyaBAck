@@ -31,9 +31,14 @@ const carSchema = new mongoose.Schema(
       required: true,
     },
     description: {
-      type: String,
-      required: true,
-      trim: true,
+      en: {
+        type: String,
+        required: true
+      },
+      ar: {
+        type: String,
+        required: true
+      }
     },
     importer: {
       type: mongoose.Schema.Types.ObjectId,

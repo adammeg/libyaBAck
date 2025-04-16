@@ -58,7 +58,7 @@ const getAllPosts = async (req, res) => {
 // Get published blog posts (for frontend)
 const getPublishedPosts = async (req, res) => {
   try {
-    const { category, tag, search, limit = 10, page = 1 } = req.query;
+    const { category, tag, search, limit = 10, page = 1, lang = 'en' } = req.query;
     const skip = (parseInt(page) - 1) * parseInt(limit);
     
     // Build query object
@@ -74,7 +74,7 @@ const getPublishedPosts = async (req, res) => {
       query.tags = tag;
     }
     
-    // Search functionality
+    // Search functionality - include both languages in search
     if (search) {
       query.$text = { $search: search };
     }
@@ -89,8 +89,35 @@ const getPublishedPosts = async (req, res) => {
       .skip(skip)
       .limit(parseInt(limit));
     
+    // Format response according to requested language
+    const formattedPosts = posts.map(post => {
+      // Create a new object with the translated fields
+      const formattedPost = post.toObject();
+      
+      // Replace multilingual fields with the requested language version
+      if (post.title && post.title[lang]) {
+        formattedPost.title = post.title[lang];
+      } else {
+        formattedPost.title = post.title.en || Object.values(post.title)[0]; // Fallback
+      }
+      
+      if (post.content && post.content[lang]) {
+        formattedPost.content = post.content[lang];
+      } else {
+        formattedPost.content = post.content.en || Object.values(post.content)[0]; // Fallback
+      }
+      
+      if (post.excerpt && post.excerpt[lang]) {
+        formattedPost.excerpt = post.excerpt[lang];
+      } else {
+        formattedPost.excerpt = post.excerpt.en || Object.values(post.excerpt)[0]; // Fallback
+      }
+      
+      return formattedPost;
+    });
+    
     res.status(200).json({
-      posts,
+      posts: formattedPosts,
       pagination: {
         total,
         page: parseInt(page),
@@ -123,6 +150,7 @@ const getPostById = async (req, res) => {
 // Get a single blog post by slug (for frontend)
 const getPostBySlug = async (req, res) => {
   try {
+    const { lang = 'en' } = req.query;
     const post = await Blog.findOne({ 
       slug: req.params.slug,
       published: true
@@ -132,7 +160,28 @@ const getPostBySlug = async (req, res) => {
       return res.status(404).json({ message: 'Blog post not found' });
     }
     
-    res.status(200).json(post);
+    // Format response according to requested language
+    const formattedPost = post.toObject();
+    
+    if (post.title && post.title[lang]) {
+      formattedPost.title = post.title[lang];
+    } else {
+      formattedPost.title = post.title.en || Object.values(post.title)[0]; // Fallback
+    }
+    
+    if (post.content && post.content[lang]) {
+      formattedPost.content = post.content[lang];
+    } else {
+      formattedPost.content = post.content.en || Object.values(post.content)[0]; // Fallback
+    }
+    
+    if (post.excerpt && post.excerpt[lang]) {
+      formattedPost.excerpt = post.excerpt[lang];
+    } else {
+      formattedPost.excerpt = post.excerpt.en || Object.values(post.excerpt)[0]; // Fallback
+    }
+    
+    res.status(200).json(formattedPost);
   } catch (error) {
     console.error('Error fetching blog post by slug:', error);
     res.status(500).json({ message: 'Error fetching blog post', error: error.message });
@@ -142,10 +191,15 @@ const getPostBySlug = async (req, res) => {
 // Create a new blog post
 const createPost = async (req, res) => {
   try {
-    const { title, content, excerpt, categories, tags, published } = req.body;
+    const { 
+      title_en, title_ar, 
+      content_en, content_ar, 
+      excerpt_en, excerpt_ar, 
+      categories, tags, published 
+    } = req.body;
     
-    // Generate a slug from the title
-    let slug = slugify(title);
+    // Generate a slug from the English title
+    let slug = slugify(title_en);
     
     // Check if slug already exists, and make it unique if needed
     const existingSlug = await Blog.findOne({ slug });
@@ -156,12 +210,21 @@ const createPost = async (req, res) => {
     // Get featured image from Cloudinary
     const featuredImageUrl = req.file ? req.file.path : null;
     
-    // Create the new blog post
+    // Create the new blog post with multilingual content
     const newPost = new Blog({
-      title,
+      title: {
+        en: title_en,
+        ar: title_ar
+      },
       slug,
-      content,
-      excerpt,
+      content: {
+        en: content_en,
+        ar: content_ar
+      },
+      excerpt: {
+        en: excerpt_en,
+        ar: excerpt_ar
+      },
       featuredImage: featuredImageUrl,
       categories: categories ? JSON.parse(categories) : [],
       tags: tags ? JSON.parse(tags) : [],

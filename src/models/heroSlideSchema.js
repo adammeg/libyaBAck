@@ -2,14 +2,28 @@ const mongoose = require('mongoose');
 
 const heroSlideSchema = new mongoose.Schema({
   title: {
-    type: String,
-    required: true,
-    trim: true
+    en: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    ar: {
+      type: String,
+      required: true,
+      trim: true
+    }
   },
   description: {
-    type: String,
-    required: true,
-    trim: true
+    en: {
+      type: String,
+      required: true,
+      trim: true
+    },
+    ar: {
+      type: String,
+      required: true,
+      trim: true
+    }
   },
   image: {
     type: String,
@@ -24,8 +38,14 @@ const heroSlideSchema = new mongoose.Schema({
     default: true
   },
   buttonText: {
-    type: String,
-    default: 'Learn More'
+    en: {
+      type: String,
+      default: 'Learn More'
+    },
+    ar: {
+      type: String,
+      default: 'اقرأ المزيد'
+    }
   },
   buttonLink: {
     type: String,
