@@ -15,7 +15,7 @@ const createCar = async (req, res) => {
             if (typeof brands === 'string') {
                 try {
                     brands = JSON.parse(brands);
-                } catch (err) {
+        } catch (err) {
                     brands = brands.split(',').map(b => b.trim());
                 }
             } else if (!brands) {
@@ -151,7 +151,7 @@ const updateCar = async (req, res) => {
                         await cloudinary.uploader.destroy(publicId);
                         console.log('Successfully deleted photo from Cloudinary:', publicId);
                     }
-                } catch (err) {
+    } catch (err) {
                     console.error('Error deleting photo from Cloudinary:', err);
                 }
             }
@@ -204,7 +204,7 @@ const deleteCar = async (req, res) => {
                         await cloudinary.uploader.destroy(publicId);
                         console.log('Successfully deleted photo from Cloudinary:', publicId);
                     }
-                } catch (err) {
+    } catch (err) {
                     console.error('Error deleting photo from Cloudinary:', err);
                 }
             }
